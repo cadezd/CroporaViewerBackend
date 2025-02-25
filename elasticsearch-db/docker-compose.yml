@@ -4,6 +4,7 @@ services:
   
   es01:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    restart: always
     # Intalling required plugins (analysis-icu), don't forget to restart to activate plugins
     command: /bin/sh -c "bin/elasticsearch-plugin install analysis-icu; /usr/local/bin/docker-entrypoint.sh"
     volumes:
@@ -36,6 +37,7 @@ services:
     depends_on:
       - es01
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    restart: always
     # Intalling required plugins (analysis-icu), don't forget to restart to activate plugins
     command: /bin/sh -c -c "bin/elasticsearch-plugin install analysis-icu; /usr/local/bin/docker-entrypoint.sh"
     volumes:
@@ -66,6 +68,7 @@ services:
     depends_on:
       - es02
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    restart: always
     # Intalling required plugins (analysis-icu), don't forget to restart to activate plugins
     command: /bin/sh -c -c "bin/elasticsearch-plugin install analysis-icu; /usr/local/bin/docker-entrypoint.sh"
     volumes:
@@ -77,7 +80,6 @@ services:
       - discovery.seed_hosts=es01,es02
       - bootstrap.memory_lock=true
       - xpack.security.enabled=false
-
     mem_limit: ${MEM_LIMIT}
     ulimits:
       memlock:
@@ -93,7 +95,6 @@ services:
       timeout: 10s
       retries: 120
 
-
   kibana:
     depends_on:
       es01:
@@ -103,6 +104,7 @@ services:
       es03:
         condition: service_healthy
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    restart: always
     volumes:
       - kibanadata:/usr/share/kibana/data
     ports:
