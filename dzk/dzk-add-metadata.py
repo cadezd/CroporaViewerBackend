@@ -6,20 +6,20 @@ import xml.etree.ElementTree as ET
 import edlib
 import pdfplumber
 
-PATH_TO_XML_FILES = "D:\\diplomska-data\\raw-data\\kranjska-xml"
-PATH_TO_PDF_FILES = "D:\\diplomska-data\\raw-data\\kranjska-pdf"
-OUTPUT_FILE = "D:\\diplomska-data\\first-parsing\\second-attempt"
+PATH_TO_XML_FILES = "/home/davidlocal/raw-data/kranjska-xml"
+PATH_TO_PDF_FILES = "/home/davidlocal/raw-data/kranjska-pdf"
+OUTPUT_FILE = "/home/davidlocal/raw-data/kranjska-xml-enriched"
 
 # Set to True if you want to visualize the coordinates on the PDF and save the images into a folder
-VISUALIZE_COORDINATES_FROM_XML = False
-VISUALIZATION_FILE = "D:\\diplomska-data\\visualizations\\first-parsing\\second-attempt"
+VISUALIZE_COORDINATES_FROM_XML = True
+VISUALIZATION_FILE = "/home/davidlocal/raw-data/kranjska-visualizations "
 
-SKIP_FILES_TO =  0 # set to 0 if you want to convert all files
+SKIP_FILES_TO = 653  # set to 0 if you want to convert all files
 MAX_FILES = -1  # set to -1 if you want to convert all files
 
 # If you want to see alignment for each word in the sentence set this to True
 # Target -> word from the xml; Best match -> word from the pdf; Similarity -> similarity between the two words
-PRINT_ALIGNMENT = False
+PRINT_ALIGNMENT = True
 
 # Namespace
 TEI = "http://www.tei-c.org/ns/1.0"
@@ -32,7 +32,7 @@ WORD_TAG = "{" + TEI + "}w"
 PUNCTUATION_TAG = "{" + TEI + "}pc"
 
 # Characters that are 100% not in the xml files ()
-CHARACTERS_TO_REMOVE: set[str] = {'@', '#', '$', '^', '&', '*', '<', '>'}
+CHARACTERS_TO_REMOVE: set[str] = {'@', '#', '$', '^', '&', '*', '<', '>', '­', '-'}
 
 # Additional equalities for Edlib to improve alignment
 ADDIDIONAL_EQUALITIES: list[tuple[str, str]] = [
@@ -289,7 +289,7 @@ def parse_words(pdf_chars: list[dict], xml_sentence: ET.Element):
         BUFFER: int = 2
 
         while similarity_prev < similarity_curr < 1.0:
-            search_area_start = best_match_end
+            search_area_start = search_from
             search_area_end = search_area_start + len(target) + BUFFER
             search_area: str = sequence[search_area_start:search_area_end]
 
@@ -308,9 +308,11 @@ def parse_words(pdf_chars: list[dict], xml_sentence: ET.Element):
         best_match_end: int = search_from + result['locations'][0][-1]
 
         # Move the search area forward in case the target is of length 1
-        search_from = best_match_end if best_match_end > search_from or \
-                                        (elements_in_sentence and len(
-                                            elements_in_sentence[0].text) > 1) else best_match_end + 1
+        # search_from = best_match_end if best_match_end > search_from or \
+        #                                (elements_in_sentence and len(
+        #                                    elements_in_sentence[0].text) > 1) else best_match_end + 1
+
+        search_from = best_match_end + 1
 
         if PRINT_ALIGNMENT:
             print(
@@ -393,8 +395,8 @@ def parse_record(xml_path: str, pdf_path: str) -> None:
         best_match_start: int = search_area_start + result['locations'][0][0]
         best_match_end: int = search_area_start + result['locations'][0][-1]
 
-        # Skip note elements
-        if xml_element.tag == NOTE_TAG:
+        # Skip elements that are not sentence
+        if xml_element.tag != SENTENCE_TAG:
             continue
 
         parse_words(session_pdf_content[best_match_start - 1:best_match_end + 1], xml_element)
@@ -410,7 +412,7 @@ def parse_record(xml_path: str, pdf_path: str) -> None:
 def main() -> None:
     files_converted = 0
 
-    xml_files = os.listdir(PATH_TO_XML_FILES)
+    xml_files = sorted(os.listdir(PATH_TO_XML_FILES))
     for i, xml_file in enumerate(xml_files):
 
         xml_path = os.path.join(PATH_TO_XML_FILES, xml_file)

@@ -9,15 +9,15 @@ import requests
 import spacy
 
 
-PATH_TO_XML_FILES = "D:\\diplomska-data\\first-parsing\\second-attempt"
-PATH_TO_JSONL_FILES = "D:\\diplomska-data\\second-parsing\\"
+PATH_TO_XML_FILES = "/home/davidlocal/raw-data/kranjska-xml-enriched"
+PATH_TO_JSONL_FILES = "/home/davidlocal/raw-data/kranjska-jsonl"
 
 PATH_TO_ATTENDEES_TEXT_FILE = "../raw-data/seznam_poslancev.txt"
 PATH_TO_PLACES_XLSX = "../raw-data/Krajevna_imena.xlsx"
 PLACES_SHEET_NAME = "Sheet2"
 
-SKIP_FILES_TO = 0  # set to 0 if you want to convert all files
-MAX_FILES = 10  # set to -1 if you want to convert all files
+SKIP_FILES_TO = 38  # set to 0 if you want to convert all files
+MAX_FILES = -1  # set to -1 if you want to convert all files
 NAMESPACE_MAPPINGS = {"ns0": "http://www.tei-c.org/ns/1.0",
                       "xml": "http://www.w3.org/XML/1998/namespace"}
 
@@ -631,6 +631,9 @@ if __name__ == "__main__":
 
     # convert xml files to jsonl
     for xml_file in xml_files:
+
+        print(xml_file)
+
         if MAX_FILES - files_converted == 0:
             break
 
