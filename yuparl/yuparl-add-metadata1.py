@@ -107,13 +107,13 @@ def get_locations_to_remove(alignment: str, seq: str) -> set[int]:
     noise_count = 0  # To count the '|' characters within a sequence
 
     for i, char in enumerate(alignment):
-        if char != '|':
+        if char == '-':
             if start is None:
                 start = i  # Mark the start of a sequence
                 noise_count = 0  # Reset noise count
         else:
             if start is not None:
-                if all([c == '|' for c in alignment[i:i + 15]]):
+                if all([c != '-' for c in alignment[i:i + 10]]):
                     locations_to_remove.append((start, i - noise_count))  # End of a sequence
                     start = None
                 else:
@@ -248,8 +248,7 @@ def parse_sentence(pdf_chars: list[dict], xml_segment: ET.Element, converter_fun
     sequence: str = "".join([char['text'] for char in pdf_chars])
 
     # Define search area window
-    search_area_start: int = 0
-    search_area_end: int = 0
+    search_from: int = 0
 
     for xml_word in xml_words:
 
@@ -259,12 +258,12 @@ def parse_sentence(pdf_chars: list[dict], xml_segment: ET.Element, converter_fun
 
         similarity_curr: float = 0
         similarity_prev: float = -1
-        BUFFER: int = 2
+        BUFFER: int = len(target) // 2
 
-        while round(similarity_prev, 2) < round(similarity_curr, 2) < 1.0:
+        while similarity_prev < similarity_curr < 1.0:
             # adjust searching area while searching for the target sentence
-            search_area_start: int = search_area_end
-            search_area_end: int = search_area_end + len(target) + BUFFER
+            search_area_start: int = search_from
+            search_area_end: int = min(search_area_start + len(target) + BUFFER, len(pdf_chars))
             search_area: str = sequence[search_area_start:search_area_end]
 
             # Perform alignment
@@ -276,7 +275,7 @@ def parse_sentence(pdf_chars: list[dict], xml_segment: ET.Element, converter_fun
 
             # Update similarity values
             similarity_prev = similarity_curr
-            similarity_curr = 1 - result['editDistance'] / max(len(target), len(search_area))
+            similarity_curr = 1 - result['editDistance'] / len(target)
 
             BUFFER += 1
 
@@ -284,22 +283,28 @@ def parse_sentence(pdf_chars: list[dict], xml_segment: ET.Element, converter_fun
         if result['locations'][0][0] is None:
             continue
 
-        search_area_start: int = search_area_start + result['locations'][0][0]
-        search_area_end: int = search_area_start + result['locations'][0][-1] + 1
+        best_match_start: int = search_from + result['locations'][0][0]
+        best_match_end: int = search_from + result['locations'][0][-1] + 1
 
-        # print("Simil:", similarity_curr)
-        # wr_id = xml_word.attrib["{" + NAMESPACE + "}id"]
-        # print("Wr_id:", wr_id)
-        # print("Word :", target)
-        # print("Match:", "".join([c["text"] for c in pdf_chars[search_area_start:search_area_end]]))
-        # print()
+        search_from = best_match_end
 
-        add_metadata_to_word_element(xml_word, pdf_chars[search_area_start: search_area_end])
+        print("Simil:", similarity_curr)
+        wr_id = xml_word.attrib["{" + NAMESPACE + "}id"]
+        print("Wr_id:", wr_id)
+        print("Word :", target)
+        print("Match:", "".join([c["text"] for c in pdf_chars[best_match_start:best_match_end]]))
+        print()
+
+        if similarity_curr < 0.7:
+            continue
+
+        add_metadata_to_word_element(xml_word, pdf_chars[best_match_start: best_match_end])
 
 
-def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_function: Callable) -> None:
+"""
+def parse_segment(pdf_chars1: list[dict], xml_segment: ET.Element, converter_function: Callable) -> None:
     xml_sentences: list[ET.Element] = get_elements_by_tags(xml_segment, {SENTENCE_TAG, NOTE_TAG})
-    sequence: str = "".join([char['text'] for char in pdf_chars])
+    sequence: str = "".join([c['text'] for c in pdf_chars1])
 
     # Define search area window
     search_area_start: int = 0
@@ -311,7 +316,7 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
         if len(target) == 0:
             continue
 
-        max_attempts: int = 2
+        max_attempts: int = 3
         attempt: int = 0
         success: bool = False  # flag to mark if we got a good enough similarity
         result = None
@@ -323,17 +328,17 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
             attempt += 1
             similarity_curr = 0
             similarity_prev: float = -1
-            BUFFER: int = 2
+            BUFFER: int = min(len(target) // 2, 5)
 
             # Inner loop: gradually expand the search area until improvement stops
             while round(similarity_prev, 2) < round(similarity_curr, 2) < 1.0:
                 search_area_start = search_area_end
                 search_area_end = search_area_end + len(target) + BUFFER
                 if resync:
-                    search_area_start = search_area_end - (len(target) + BUFFER)
+                    search_area_start = 0
                     search_area_end = len(sequence)
                     resync = False
-                search_area: str = sequence[search_area_start: min(search_area_end + BUFFER, len(sequence))]
+                search_area: str = sequence[search_area_start: search_area_end]
 
                 result = edlib.align(
                     converter_function(target, "sr"),
@@ -342,7 +347,7 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
                 )
 
                 similarity_prev = similarity_curr
-                similarity_curr = 1 - result['editDistance'] / max(len(target), len(search_area))
+                similarity_curr = 1 - result['editDistance'] / len(target)
                 BUFFER += 1
 
             # If no valid location is found, break out
@@ -353,7 +358,7 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
             search_area_start = search_area_start + result['locations'][0][0]
             search_area_end = search_area_start + result['locations'][0][-1] + 1
 
-            if similarity_curr < 0.75:
+            if similarity_curr < 0.5:
                 # Not similar enough—try again by reiterating the alignment process.
                 # (You might consider additional logic here such as logging or modifying parameters.)
                 resync = True
@@ -363,60 +368,50 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
                 success = True
                 break
 
-        # If after max attempts the similarity is still too low or no valid alignment was found, skip this sentence.
-        # if not success or result['locations'][0][0] is None:
-        #     print(xml_sentence.attrib[
-        #               "{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_sentence.attrib else "note")
-        #     continue
-
-        # Skip processing if the element is a note
-        if xml_sentence.tag == NOTE_TAG:
-            continue
-
         print("Simil:", similarity_curr)
         s_id = xml_sentence.attrib[
             "{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_sentence.attrib else "note"
         print("Sn_id:", s_id)
         print("Sente:", target)
-        print("Match:", "".join([c["text"] for c in pdf_chars[search_area_start:search_area_end]]))
+        print("Match:", "".join([c["text"] for c in pdf_chars1[search_area_start:search_area_end]]))
         print()
 
+        # If after max attempts the similarity is still too low or no valid alignment was found, skip this sentence.
+        if not success:
+            continue
+
+        # Skip processing if the element is a note
+        if xml_sentence.tag == NOTE_TAG:
+            continue
+
         # Process the sentence alignment match
-        parse_sentence(pdf_chars[search_area_start:search_area_end], xml_sentence, converter_function)
-
-
+        # parse_sentence(pdf_chars1[search_area_start:search_area_end], xml_sentence, converter_function)
 """
+
+
 def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_function: Callable) -> None:
     xml_senteces: list[ET.Element] = get_elements_by_tags(xml_segment, {SENTENCE_TAG, NOTE_TAG})
-    sequence: str = "".join([char['text'] for char in pdf_chars])
+    sequence: str = "".join([c['text'] for c in pdf_chars])
 
     # Define search area window
-    search_area_start: int = 0
-    search_area_end: int = 0
-
-    resync: bool = False
+    search_from: int = 0
 
     # For each sentence find optimal alignment in the segment
-    for xml_sentnece in xml_senteces:
+    for xml_sentence in xml_senteces:
 
-        target: str = re.sub(r'\s+|\t|\n|\r', '', get_text_from_element(xml_sentnece))
+        target: str = re.sub(r'\s+|\t|\n|\r', '', get_text_from_element(xml_sentence))
         if len(target) == 0:
             continue
 
         similarity_curr: float = 0
         similarity_prev: float = -1
-        BUFFER: int = 2
+        BUFFER: int = len(target) // 2
 
-        while round(similarity_prev, 2) < round(similarity_curr, 2) < 1.0:
+        while similarity_prev < similarity_curr < 1.0:
             # adjust searching area while searching for the target sentence
-            search_area_start: int = search_area_end
-            search_area_end: int = search_area_end + len(target) + BUFFER
+            search_area_start: int = search_from
+            search_area_end: int = min(search_area_start + len(target) + BUFFER, len(pdf_chars))
             search_area: str = sequence[search_area_start:search_area_end]
-
-            if resync:
-                search_area_start = 0
-                search_area_end = -1
-                resync = False
 
             # Perform alignment
             result = edlib.align(
@@ -427,7 +422,7 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
 
             # Update similarity values
             similarity_prev = similarity_curr
-            similarity_curr = 1 - result['editDistance'] / max(len(target), len(search_area))
+            similarity_curr = 1 - result['editDistance'] / len(target)
 
             BUFFER += 1
 
@@ -435,26 +430,32 @@ def parse_segment(pdf_chars: list[dict], xml_segment: ET.Element, converter_func
         if result['locations'][0][0] is None:
             continue
 
-        search_area_start: int = search_area_start + result['locations'][0][0]
-        search_area_end: int = search_area_start + result['locations'][0][-1] + 1
+        best_match_start: int = search_from + result['locations'][0][0]
+        best_match_end: int = search_from + result['locations'][0][-1] + 1
 
-        if similarity_curr < 0.75:
-            resync = True
+        search_from = best_match_end
+
+        print("Simil:", similarity_curr)
+        s_id = xml_sentence.attrib[
+            "{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_sentence.attrib else "note"
+        print("Sn_id:", s_id)
+        print("Targt:", target)
+        print("Match:", "".join([c["text"] for c in pdf_chars[best_match_start:best_match_end]]))
+        print()
+
+        if xml_sentence.tag == NOTE_TAG:
             continue
 
-        # print("Simil:", similarity_curr)
-        # s_id = xml_sentnece.attrib[
-        #     "{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_sentnece.attrib else "note"
-        # print("Sn_id:", s_id)
-        # print("Sente:", target)
-        # print("Match:", "".join([c["text"] for c in pdf_chars[search_area_start:search_area_end]]))
-        # print()
+        # if similarity_curr < 0.7:
+        #     continue
 
-        if xml_sentnece.tag == NOTE_TAG:
-            continue
+        cleared_pdf_chars: list[dict] = additional_align(
+            xml_sentence,
+            pdf_chars[max(best_match_start - 22, 0):min(best_match_end + 22, len(pdf_chars))],
+            converter_function
+        )
 
-        parse_sentence(pdf_chars[search_area_start:search_area_end], xml_sentnece, converter_function)
-"""
+        parse_sentence(cleared_pdf_chars, xml_sentence, converter_function)
 
 
 def parse_record(xml_path: str, pdf_path: str) -> None:
@@ -496,7 +497,7 @@ def parse_record(xml_path: str, pdf_path: str) -> None:
 
         similarity: float = 1 - result["editDistance"] / len(target)
         # skip note elements and segments that are probably table
-        if similarity < 0.75:
+        if similarity < 0.7:
             print(xml_segment.attrib[
                       "{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_segment.attrib else "note")
             continue
@@ -511,23 +512,25 @@ def parse_record(xml_path: str, pdf_path: str) -> None:
 
         cleared_pdf_chars: list[dict] = additional_align(
             xml_segment,
-            pdf_chars[max(segment_start - BUFFER, 0): min(segment_end + BUFFER, len(sequence))],
+            pdf_chars[segment_start - 50: segment_end + 50],
             converter_function
         )
 
         # if "{" + NAMESPACE + "}id" in xml_segment.attrib and xml_segment.attrib[
         #     "{" + NAMESPACE + "}id"] == "yu1Parl_1919-05-23_PP_24_seg3":
-        #     print("Simi:", similarity)
-        #     print("Trgt:", target)
-        #     print("Mtch:", "".join([c["text"] for c in pdf_chars[segment_start - BUFFER:segment_end + BUFFER]]))
-        #     print()
+        print("Simil:", similarity)
+        print("Sg_id:",
+              xml_segment.attrib["{" + NAMESPACE + "}id"] if "{" + NAMESPACE + "}id" in xml_segment.attrib else "note")
+        print("Targt:", target)
+        # print("Match1:", "".join([c["text"] for c in pdf_chars[segment_start - 30: segment_end + 30]]))
+        print("Match2:", "".join([c["text"] for c in cleared_pdf_chars]))
+        print()
 
-        parse_segment(cleared_pdf_chars, xml_segment, converter_function)
+        parse_segment(pdf_chars[segment_start - 50: segment_end + 50], xml_segment, converter_function)
 
     # Save the updated XML content
     if not os.path.exists(OUTPUT_FILE):
         os.makedirs(OUTPUT_FILE)
-
     save_xml_tree(xml_tree, os.path.join(OUTPUT_FILE, os.path.basename(xml_path)))
 
     if VISUALIZE_COORDINATES_FROM_XML:
